@@ -219,3 +219,5 @@ __marimo__/
 
 # Secrets
 AutomationCVSecret.json
+service_automationcv-key.json
+token.json
