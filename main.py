@@ -30,7 +30,6 @@ POLL_INTERVAL_SECONDS = 60
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
-
 def load_credentials() -> Credentials:
     cred = None
     try:
@@ -79,17 +78,14 @@ def export_pdf_bytes(fileId: str) -> bytes:
         _, done = downloader.next_chunk()
     return buffer.getvalue()
 
-
 def find_files_by_name(name: str, folder_id: str) -> list:
     escaped_name = name.replace("\\", "\\\\").replace("'", "\\'")
     query = f"name = '{escaped_name}' and '{folder_id}' in parents and trashed = false"
     results = drive_service.files().list(q=query, fields='files(id, name)').execute()
     return results.get('files', [])
 
-
 def rename_file(fileId: str, new_name: str) -> None:
     drive_service.files().update(fileId=fileId, body={'name': new_name}).execute()
-
 
 def backup_existing_file(name: str, folder_id: str) -> None:
     base_name, ext = os.path.splitext(name)
@@ -104,7 +100,6 @@ def backup_existing_file(name: str, folder_id: str) -> None:
     for existing in find_files_by_name(name, folder_id):
         rename_file(existing['id'], backup_name)
         logger.info('Renamed existing file "%s" to "%s"', name, backup_name)
-
 
 def upload_pdf(name: str, content: bytes, folder_id: str) -> None:
     media = MediaIoBaseUpload(io.BytesIO(content), mimetype='application/pdf', resumable=False)

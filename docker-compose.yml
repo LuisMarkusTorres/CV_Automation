@@ -1,7 +1,7 @@
 services:
   app:
     image: ghcr.io/luismarkustorres/cv_automation:${IMAGE_TAG}
-    platform: linux/arm64
+    platform: linux/amd64
     container_name: cv-automation
     restart: unless-stopped
     volumes:
