@@ -53,6 +53,19 @@ jobs:
       runs-on: ubuntu-latest
 
       steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+
+        - name: Sync files to Oracle Cloud
+          uses: appleboy/scp-action@v1
+          with:
+            host: ${{ secrets.ORACLE_HOST }}
+            username: ${{ secrets.ORACLE_USER }}
+            key: ${{ secrets.ORACLE_SSH_KEY }}
+            source: "docker-compose.yml"
+            target: "/opt/cv-automation"
+            strip_components: 0
+
         - name: Deploy to Oracle Cloud
           uses: appleboy/ssh-action@v1
           with:
