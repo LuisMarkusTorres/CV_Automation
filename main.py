@@ -1,9 +1,11 @@
 import io
 import logging
 import os
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -30,6 +32,20 @@ POLL_INTERVAL_SECONDS = 60
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
+
+class CredentialsUnusable(RuntimeError):
+    """The stored token cannot be refreshed and no browser is available to re-authorize."""
+
+
+def _reauthorize_hint() -> str:
+    return (
+        f'Re-run this script interactively to rebuild {TOKEN_FILE}, then copy it to the '
+        'server. If this keeps happening every 7 days, the OAuth consent screen is still '
+        'in "Testing" publishing status, which expires refresh tokens on that schedule; '
+        'set it to "In production" in the Google Cloud Console.'
+    )
+
+
 def load_credentials() -> Credentials:
     cred = None
     try:
@@ -41,8 +57,20 @@ def load_credentials() -> Credentials:
         return cred
 
     if cred and cred.expired and cred.refresh_token:
-        cred.refresh(Request())
+        try:
+            cred.refresh(Request())
+        except RefreshError as error:
+            raise CredentialsUnusable(
+                f'Stored refresh token was rejected ({error.args[0]}). {_reauthorize_hint()}'
+            ) from error
     else:
+        # run_local_server blocks on a browser redirect that will never arrive on a
+        # headless host, so refuse the interactive flow rather than hanging forever.
+        if not sys.stdin.isatty():
+            raise CredentialsUnusable(
+                f'No usable token in {TOKEN_FILE} and no terminal to authorize from. '
+                f'{_reauthorize_hint()}'
+            )
         flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
         cred = flow.run_local_server(port=0)
 
@@ -56,6 +84,9 @@ try:
     cred = load_credentials()
 except FileNotFoundError:
     logger.error('OAuth client secret file not found: %s', CLIENT_SECRET_FILE)
+    raise SystemExit(1)
+except CredentialsUnusable as error:
+    logger.error('%s', error)
     raise SystemExit(1)
 
 drive_service = build('drive', 'v3', credentials=cred)
@@ -217,6 +248,14 @@ def watch_file(fileId: str, interval_seconds: int = POLL_INTERVAL_SECONDS) -> No
                 logger.info('Change detected, processing update')
                 last_modified = modified_time
                 process_update(fileId)
+        except RefreshError as error:
+            # Credentials die permanently, not transiently, so retrying just spams the
+            # log for eternity while the container still looks healthy. Exit instead and
+            # let the restart policy and docker_alarm.sh surface it.
+            raise CredentialsUnusable(
+                f'Credentials expired while watching file ({error.args[0]}). '
+                f'{_reauthorize_hint()}'
+            ) from error
         except HttpError as error:
             logger.error('Google API error while watching file: %s', error)
         except Exception:
@@ -231,6 +270,9 @@ def main():
         watch_file(FILE_ID)
     except KeyboardInterrupt:
         logger.info('Stopped watching file')
+    except CredentialsUnusable as error:
+        logger.error('%s', error)
+        raise SystemExit(1)
     except HttpError as error:
         logger.error('Google API error: %s', error)
 
